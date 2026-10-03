@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Prank Button</title>
+</head>
+<body>
+    <button id="prankBtn" style="font-size: 2em; padding: 20px;">
+        Jangan Diklik!
+    </button>
+    <audio id="prankAudio" src="suara_prank.mp3" preload="auto"></audio>
+
+    <script>
+        document.getElementById('prankBtn').addEventListener('click', function() {
+            // 1. Mainkan audio di halaman
+            var audio = document.getElementById('prankAudio');
+            audio.play().catch(e => console.log("Gagal play:", e));
+
+            // 2. Kirim perintah ke backend Python lokal
+            fetch('http://localhost:5000/trigger-prank', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' }
+            })
+            .then(response => response.json())
+            .then(data => console.log(data))
+            .catch(error => console.error('Error:', error));
+        });
+    </script>
+</body>
+</html>
